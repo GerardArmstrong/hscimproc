@@ -1,1 +1,1 @@
-from .funcs import FrameGenerator
+from .funcs import FrameGenerator, AlignedFrameGenerator, FrameGeneratorCollection
