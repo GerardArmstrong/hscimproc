@@ -193,55 +193,6 @@ class FrameGenerator:
             out.write(frame)
 
         out.release()
-
-    def standard_format_frame_generator(self,pattern,start_frame=0,n_frames=None,sort_fn=lambda x: re.findall('[0-9]+',x)[-1],nostop=False,hflip=False,vflip=False):
-
-        """
-        Generator for frames in a standard image format
-
-        Parameters:
-
-        pattern: pattern to match the images. e.g. 'images/*.png'
-        sort_fn: function to sort the images. Default is to sort by the last number in the filename
-        nostop: if True, ignore bad image file reads and continue
-        start_frame: frame to start at
-        n_frames: number of frames to read
-
-        """
-
-        files = glob.glob(pattern)
-
-        if not files:
-            raise ValueError('No files found matching pattern',pattern)
-
-        files.sort(key=sort_fn)
-
-        if not n_frames:
-            n_frames = np.inf   
-
-        n_frames = min(n_frames,len(files)-start_frame)
-
-        files = files[start_frame:start_frame+n_frames]
-
-        for f in files:
-            try:
-                with Image.open(f) as im:
-                    im = np.array(im)
-            
-                    if hflip:
-                        im = self.hflip(im)
-                    if vflip:
-                        im = self.vflip(im)
-
-                    yield im
-            except:
-                print('Warning: Could not open file',f)
-
-                if not nostop:
-                    print('Stopping due to bad image file read. To ignore bad file reads, pass nostop=True')
-                    break
-
-        return self
             
     def __iter__(self):
         self.current_index = 0
@@ -373,9 +324,102 @@ class FrameGenerator:
         if hasattr(self,'mmap'):
             self.mmap.close()
 
+class StandardFormatFrameGenerator(FrameGenerator):
+
+    def __init__(self,
+        pattern,
+        fps=1,
+        start_frame=0,
+        n_frames=None,
+        sort_fn=lambda x: int(re.findall('[0-9]+',x)[-1]),
+        nostop=False,
+        hflip=False,
+        vflip=False,
+        brighten = False
+    ):
+
+        """
+        Generator for frames in a standard image format
+
+        Parameters:
+
+        pattern: pattern to match the images. e.g. 'images/*.png'
+        sort_fn: function to sort the images. Default is to sort by the last number in the filename
+        nostop: if True, ignore bad image file reads and continue
+        start_frame: frame to start at
+        n_frames: number of frames to read
+
+        """
+
+        files = glob.glob(pattern)
+
+        if not files:
+            raise ValueError('No files found matching pattern',pattern)
+
+        files.sort(key=sort_fn)
+
+        if not n_frames:
+            n_frames = np.inf   
+
+        # n_frames = min(n_frames,len(files)-start_frame)
+        n_frames = len(files)
+
+        # files = files[start_frame:start_frame+n_frames]
+
+        self.files = files
+        self.pattern = pattern
+        self.start_frame = start_frame
+        self.n_frames = n_frames
+        self.sort_fn = sort_fn
+        self.nostop = nostop
+        self.apply_hflip = hflip
+        self.apply_vflip = vflip
+        self.brighten = brighten
+        self.fps = fps
+        self.current_index = start_frame
+
+    def __next__(self):
+        self.current_index += 1
+
+        if self.current_index > len(self.files):
+            raise StopIteration
+
+        return self.get_frame(self.current_index)
+
+    def get_frame(self,idx):
+
+        if idx >= len(self.files): raise StopIteration
+
+        f = self.files[idx]
+
+        try:
+            with Image.open(f) as im:
+                im = np.array(im)
+        
+                if self.apply_hflip:
+                    im = self.hflip(im)
+                if self.apply_vflip:
+                    im = self.vflip(im)
+
+                self.im_shape = im.shape
+
+                return im
+        except FileNotFoundError:
+            print('Warning: Could not open file',f)
+
+            if not self.nostop:
+                print('Stopping due to bad image file read. To ignore bad file reads, pass nostop=True')
+                return None
+
 class AlignedFrameGenerator(FrameGenerator):
     def __init__(self,parent,name='Unknown Frame Generator'):
         self.parent = parent
+
+        if isinstance(self,AlignedStandardFormatFrameGenerator):
+            self.get_frame_fn = super(StandardFormatFrameGenerator,self).get_frame
+        else:
+            self.get_frame_fn = super().get_frame
+
         super().__init__(name=name)
 
     def get_frame(self, n_frame, **kwargs):
@@ -401,9 +445,13 @@ class AlignedFrameGenerator(FrameGenerator):
         i = (sf1 + n_frame)*fps1/fps2 - sf2
 
         if i >= 0 and i <= self.total_frames and i % 1 == 0:
-            return super().get_frame(i,**kwargs)
+            # return super().get_frame(i,**kwargs)
+            return self.get_frame_fn(i,**kwargs)
         else:
             return None
+
+class AlignedStandardFormatFrameGenerator(StandardFormatFrameGenerator,AlignedFrameGenerator):
+    pass
         
 class FrameGeneratorCollection:
 
@@ -428,7 +476,8 @@ class FrameGeneratorCollection:
 
         for (frame1,frame2) in self:
 
-            cv.imshow('Player1',frame1)
+            if frame1 is not None:
+                cv.imshow('Player1',frame1)
             if frame2 is not None:
                 cv.imshow('Player2',frame2)
 
@@ -443,6 +492,7 @@ class FrameGeneratorCollection:
     def __next__(self):
         idx = self.frame_generator.current_index + 1
         self.frame_generator.current_index = idx
+
         frame1 = self.frame_generator.get_frame(idx)
         frame2 = self.aligned_frame_generator.get_frame(idx)
         return (frame1, frame2)

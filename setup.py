@@ -9,7 +9,8 @@ setup(
     packages=find_packages(),
     install_requires=[
         'numpy',
-        'lxml'
+        'lxml',
+        'pillow'
     ],
     optional_requires=['opencv-python'],
     entry_points={
