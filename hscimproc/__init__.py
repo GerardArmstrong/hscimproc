@@ -1,1 +1,7 @@
-from .funcs import FrameGenerator, AlignedFrameGenerator, FrameGeneratorCollection, StandardFormatFrameGenerator, AlignedStandardFormatFrameGenerator
+from .funcs import \
+    FrameGenerator,\
+    RawFrameGenerator, \
+    StandardFormatFrameGenerator, \
+    AlignedRawFrameGenerator, \
+    AlignedStandardFormatFrameGenerator, \
+    FrameGeneratorCollection

@@ -1,6 +1,13 @@
 # hscimproc
 
-This module contains a single class called `FrameGenerator` which is used to extract frames from MRAW (Motion RAW) files commonly found on high speed cameras, or from other standard image formats.
+This module contains several classes used to extract frames from MRAW (Motion RAW) files from high speed cameras, or from other standard image formats (TIFFs, PNGs etc).
+
+- **FrameGenerator**: Base class
+- **RawFrameGenerator**: Generate frames from a .mraw and .cihx file.
+- **StandardFormatFrameGenerator**: For image format files like TIFFs, PNGs, JPGs or any format PIL can open.
+- **FrameGeneratorCollection**: Container class for iterating over multiple FrameGenerator-like objects. Returns the image at current index from each set of frames, or `None` if no image.
+- **AlignedFrameGenerator**: Child class of FrameGenerator. Looks at .cihx metadata and can align two sets of frames with one another.
+- **AlignedStandardFormatFrameGenerator**: Align sets of frames based on defined FPS and offset.
 
 ## Dependencies
 
@@ -15,35 +22,25 @@ Clone and `cd` this repo. Then, in the environment you would like to use this pa
 
 ## Class: FrameGenerator
 
-### Usage
+When instantiating any `FrameGenerator` there are various options you can pass.
 
-FrameGenerator can provide a generator of either 8-bit or 16-bit image arrays. It has been tested with 8, 12 and 16 bit images. The class has the following methods:
 
-- `frame_generator_int16(self, mraw, start_frame=0, n_frames=None)`: This method is a generator that yields frames from an MRAW file. The parameters are:
-  - `mraw`: The MRAW file to extract frames from.
-  - `start_frame`: The frame to start extraction from (default 0).
-  - `n_frames`: The number of frames to extract. Defaults to last frame.
-  - `scale`: For 12 bit images, the data is bit-shifted to start at the most significant bit. Images will be dark without this. Defaults to True.
+- **hflip**: Flip images horizontally
+- **vflip**: Flip images vertically
+- **start_frame**: Frame to start at
+- **n_frames**: How many frames to output
+- **brighten**: Scale intensities to use the maximum bit depth
 
-- `frame_generator_int8(self,mraw_start_frame=0, n_frames=None)`: Exactly the same as `frame_generator_int16` but returns 8-bit images.
-
-- `standard_format_frame_generator(self, glob_pattern, start_frame=0, n_frames=None, sort_fn=None)`: This method is a generator that yields frames from a standard image format. The parameters are:
-  - `glob_pattern`: A glob pattern to match the images you want to extract frames from.
-  - `start_frame`: The frame to start extraction from (default 0).
-  - `n_frames`: The number of frames to extract. Defaults to last frame.
-  - `sort_fn`: A function to sort the images. If not provided, the code will sort by the last group of numbers found in the filename.
+## Examples
 
 ### Example 1: Create a generator for postprocessing with a .mraw file
 
 ```
-from hscimproc import FrameGenerator
-generator = FrameGenerator()
-
+from hscimproc import RawFrameGenerator
 filename = 'camera_1.mraw'
+frame_generator = RawFrameGenerator(filename)
 
-frames = generator.raw_frame_generator_int8(filename,1000,12,0)
-
-for frame in frames:
+for frame in frame_generator:
     # your postprocessing goes here
 
 ```
@@ -51,40 +48,34 @@ for frame in frames:
 ### Example 2: Create a generator using a standard image format
 
 ```
-from hscimproc import FrameGenerator
-generator = standard_format_frame_generator()
+from hscimproc import StandardFormatFrameGenerator
 
 # specify a glob pattern to capture all images
-filename = 'run_XXXX/CAMERA1_*.tif'
+glob_pattern = 'run_XXXX/CAMERA1_*.tif'
 
 # If no sort function is passed, the code will default to sorting by the last group of numbers found in the filename. An example of setting your own (this would sort by everything after the last underscore):
 sort_fn = lambda x: int(x.split('_')[-1].split('.')[0])
 
-frames = generator.standard_frame_generator_int8(filename,start_frame=0,n_frames=None,sort_fn=sort_fn)
+frame_generator = StandardFormatFrameGenerator(glob_pattern,sort_fn=sort_fn)
 
-for frame in frames:
+for frame in frame_generator:
     # your postprocessing goes here
 
 ```
 
 ### Example 3: Video playback (requires package `opencv-python`)
 ```
-# Import and instantiate the FrameGenerator
-from hscimproc import FrameGenerator
-generator = FrameGenerator()
+from hscimproc import RawFrameGenerator
+
+file_path = '/path/to/mraw.mraw'
+
+# Create any subclass of FrameGenerator.
+generator = RawFrameGenerator(file_path)
 
 # Default fps is 30. Setting fps=0 will allow you to step through images by pressing any key. 'q' or 'esc' will quit playback.
 
-# Settings for playback
-settings = {
-        'fps':100,
-        'filename':'camera_1.mraw'
-        'start_frame':0,
-        'n_frames':1000 
-}
+generator.play(fps=30)
 
-frames = generator.raw_frame_generator_int8(frames)
-generator.play(frames,**settings)
 ```
 
 ### Example 4: Turn your frames into a cool MP4 to show all your friends
@@ -93,18 +84,43 @@ This is not guaranteed to work well yet as the OpenCV VideoWriter class is very 
 
 ```
 from hscimproc import FrameGenerator
-generator = FrameGenerator()
 
 # instantiate either a standard format or raw frame generator
-frames = generator.standard_frame_generator_int8('run_XXXX/CAMERA1_*.tif',1000) # or generator.raw_frame_generator_int8('camera_1.mraw')
+frames = StandardFormatFrameGenerator('run_XXXX/CAMERA1_*.tif')
 
-generator.to_mp4(frames,'output_file.mp4',fps=100)
+frames.to_mp4(frames,'output_file.mp4',fps=100)
+```
+
+## Example 5: Changing output resolution and offset
+
+You can also set the frame output to a custom resolution. This is useful in image tracking analysis where the cameras may be calibrated based on full frame resolution, but the data was captured with a downsize window and offset.
+
+Unfortunately there are all sorts of different conventions for image view axes. I try to stick to OpenCV which is [left to right, top-down] as much as possible. However, camera center offsets are usually specified in graph xy coordinates (left to right, bottom-up), so that is used here. Once you have the frame generator you can set these properties like so:
+
+```
+frame_generator.set_output_resolution((1024,1024))
+frame_generator.set_center_offset((100,100))
+```
+
+## Example 6: Aligning Frames
+
+For an AlignedRawFrameGenerator the FPS and offset is automatically found from the metadata. For an AlignedStandardFormatFrameGenerator you must specify the `fps` and `start_offset` attributes. In either case, after you create the object you must bind its parent.
+
+```
+# Create the first frame generator
+fg = RawFrameGenerator(...)
+
+# Bind the parent
+fg2 = AlignedRawFrameGenerator(...)
+fg2.set_parent(fg)
 
 ```
 
+You can then put these into a FrameCollection or iterate over each separately..
+
 ## Known Issues
 
-1. You will probably face issues if you pass a generator through nested function calls. This appears to be an issue with the Python or glibc garbage collector. Making persistent references to the generator does not seem to help. This will most likely manifest as random segfaults when iterating through the generator (random meaning sometimes it will work and sometimes the generator has been GC'd). The only advice I can give for this is to use the generator in the same function as it is istantiated, and avoid passing it to other functions.
+1. You will probably face issues if you pass a generator through nested function calls. This appears to be an issue with the Python or glibc garbage collector. Making persistent references to the generator does not seem to help. This will most likely manifest as random segfaults when iterating through the generator (random meaning sometimes it will work and sometimes the generator has been GC'd). The only advice I can give for this is to use the generator in the same function as it is instantiated, and avoid passing it to other functions.
 
 ## Credits
 

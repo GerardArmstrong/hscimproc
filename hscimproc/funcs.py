@@ -29,95 +29,10 @@ if not os.path.exists('/tmp/hscimproc'):
 
 class FrameGenerator:
 
-    def __init__(self,name = 'Unknown Frame Generator'):
+    def __init__(self,name='Unknown Frame Generator'):
         self.aligned_frame_generator = None
         self.brighten = False
         self.name = name
-
-    def raw_frame_generator(self,mraw,start_frame=0,output_dtype=np.uint8,n_frames=None, scale=True,hflip=False,vflip=False,brighten=False):
-
-        # determine the image shape so it doesn't need to be passed
-        (im_shape,
-        total_frames,
-        fps,
-        bit_depth, start_offset) = self.get_metadata(mraw)
-
-        self.mmap = open(mraw,'rb')
-
-        self.brighten = brighten
-
-        if n_frames is None:
-            n_frames = total_frames - start_frame
-        elif n_frames > total_frames - start_frame:
-            print('Warning: n_frames is greater than the total number of frames in the file')
-            n_frames = total_frames - start_frame
-
-        px_per_frame = np.prod(im_shape)
-
-        output_dtype_itemsize = np.array([0],dtype=output_dtype).itemsize
-
-        if bit_depth == 12 or bit_depth == 8:
-            dtype = np.uint8
-        elif bit_depth == 16:
-            dtype = np.uint16
-
-        self.frame_size_bytes = int(px_per_frame * bit_depth / 8)
-        self.bit_depth = bit_depth
-        self.px_per_frame = px_per_frame
-        self.output_dtype = output_dtype
-        self.bit_depth = bit_depth
-        self.n_frames = n_frames
-        self.start_frame = start_frame
-        self.total_frames = total_frames
-        self.output_dtype_itemsize = output_dtype_itemsize
-        self.dtype = dtype
-        self.im_shape = im_shape
-        self.apply_hflip = hflip
-        self.apply_vflip = vflip
-        self.scale = scale
-        self.mraw = mraw
-        self.fps = fps
-        self.start_offset = start_offset
-
-        self.current_index = start_frame
-        self.output_resolution = None
-        self.center_offset = (0,0)
-
-        return self
-
-    def get_metadata(self,filename):
-
-        # find the metadatata file
-        mraw_folder = os.path.abspath(os.path.relpath(f'{filename}/..'))
-        files = os.listdir(mraw_folder)
-        files = [f for f in files if f.startswith(filename.split('/')[-1].split('.')[0])]
-
-        xml_file = [f for f in files if f.split('.')[-1].startswith('cih')][0]
-        xml_file = os.path.join(mraw_folder,xml_file)
-        
-        with open(xml_file,'rb') as f:
-            xml_data = f.read()
-            # Find the start of the XML content and decode it
-            start = xml_data.find(b'<')
-            # xml_data = xml_data[start:].decode('utf-8')
-            xml_data = xml_data[start:]
-
-        # root = xml.etree.ElementTree.fromstring(xml_data)
-
-        root = lxml.etree.fromstring(xml_data)
-
-        imageDataInfo = root.find('imageDataInfo')
-        resolution = imageDataInfo.find('resolution')
-        resolution = resolution.find('width').text,resolution.find('height').text
-        resolution = int(resolution[1]),int(resolution[0])
-        total_frames = int(root.find('frameInfo').find('totalFrame').text)
-        fps = int(root.find('recordInfo').find('recordRate').text)
-        start_offset = int(root.find('frameInfo').find('startFrame').text)
-        bitDepth = int(imageDataInfo.find('effectiveBit').find('depth').text)
-        f = None
-        sleep(0.5)
-        
-        return resolution, total_frames, fps, bitDepth, start_offset
 
     def hflip(self,im):
         return np.flip(im,1)
@@ -150,12 +65,13 @@ class FrameGenerator:
                 keypress = cv.waitKey(1000//fps)
                 #Also allow user to press 'q' button or 'esc' button and stop the video
             if keypress == ord('q') or keypress == 27:
+                cv.destroyAllWindows()
                 break
             if keypress == ord('s'):
                 self.save_tiff(frame)
 
 
-    def to_mp4(self,frames,filename='output.mp4',fps=30,four_cc="MP4V"):
+    def to_mp4(self,filename='output.mp4',fps=30,four_cc="MP4V"):
 
         """
         Converts a list of frames to an mp4 video file
@@ -172,7 +88,8 @@ class FrameGenerator:
         except ImportError:
             raise ImportError('OpenCV is required for this function')
 
-        frame = next(frames)
+        self.current_index = self.start_frame
+        frame = self.get_frame(self.current_index)
 
         #Get the shape of the first frame
         shape = frame.shape
@@ -324,6 +241,103 @@ class FrameGenerator:
         if hasattr(self,'mmap'):
             self.mmap.close()
 
+class RawFrameGenerator(FrameGenerator):
+
+    def __init__(self,
+    mraw,
+    start_frame=0,
+    output_dtype=np.uint8,
+    n_frames=None,
+    scale=True,
+    hflip=False,
+    vflip=False,
+    brighten=False,
+    name='Unknown Frame Generator'
+    ):
+
+        # determine the image shape so it doesn't need to be passed
+        (im_shape,
+        total_frames,
+        fps,
+        bit_depth, start_offset) = self.get_metadata(mraw)
+
+        self.mmap = open(mraw,'rb')
+
+        self.brighten = brighten
+
+        if n_frames is None:
+            n_frames = total_frames - start_frame
+        elif n_frames > total_frames - start_frame:
+            print('Warning: n_frames is greater than the total number of frames in the file')
+            n_frames = total_frames - start_frame
+
+        px_per_frame = np.prod(im_shape)
+
+        output_dtype_itemsize = np.array([0],dtype=output_dtype).itemsize
+
+        if bit_depth == 12 or bit_depth == 8:
+            dtype = np.uint8
+        elif bit_depth == 16:
+            dtype = np.uint16
+
+        self.frame_size_bytes = int(px_per_frame * bit_depth / 8)
+        self.bit_depth = bit_depth
+        self.px_per_frame = px_per_frame
+        self.output_dtype = output_dtype
+        self.bit_depth = bit_depth
+        self.n_frames = n_frames
+        self.start_frame = start_frame
+        self.total_frames = total_frames
+        self.output_dtype_itemsize = output_dtype_itemsize
+        self.dtype = dtype
+        self.im_shape = im_shape
+        self.apply_hflip = hflip
+        self.apply_vflip = vflip
+        self.scale = scale
+        self.mraw = mraw
+        self.fps = fps
+        self.start_offset = start_offset
+
+        self.current_index = start_frame
+        self.output_resolution = None
+        self.center_offset = (0,0)
+
+        super().__init__(name)
+
+    def get_metadata(self,filename):
+
+        # find the metadatata file
+        mraw_folder = os.path.abspath(os.path.relpath(f'{filename}/..'))
+        files = os.listdir(mraw_folder)
+        files = [f for f in files if f.startswith(filename.split('/')[-1].split('.')[0])]
+
+        xml_file = [f for f in files if f.split('.')[-1].startswith('cih')][0]
+        xml_file = os.path.join(mraw_folder,xml_file)
+        
+        with open(xml_file,'rb') as f:
+            xml_data = f.read()
+            # Find the start of the XML content and decode it
+            start = xml_data.find(b'<')
+            # xml_data = xml_data[start:].decode('utf-8')
+            xml_data = xml_data[start:]
+
+        # root = xml.etree.ElementTree.fromstring(xml_data)
+
+        root = lxml.etree.fromstring(xml_data)
+
+        imageDataInfo = root.find('imageDataInfo')
+        resolution = imageDataInfo.find('resolution')
+        resolution = resolution.find('width').text,resolution.find('height').text
+        resolution = int(resolution[1]),int(resolution[0])
+        total_frames = int(root.find('frameInfo').find('totalFrame').text)
+        fps = int(root.find('recordInfo').find('recordRate').text)
+        start_offset = int(root.find('frameInfo').find('startFrame').text)
+        bitDepth = int(imageDataInfo.find('effectiveBit').find('depth').text)
+        f = None
+        sleep(0.5)
+        
+        return resolution, total_frames, fps, bitDepth, start_offset
+
 class StandardFormatFrameGenerator(FrameGenerator):
 
     def __init__(self,
@@ -335,7 +349,8 @@ class StandardFormatFrameGenerator(FrameGenerator):
         nostop=False,
         hflip=False,
         vflip=False,
-        brighten = False
+        brighten = False,
+        name = 'Unknown Frame Generator'
     ):
 
         """
@@ -378,6 +393,8 @@ class StandardFormatFrameGenerator(FrameGenerator):
         self.fps = fps
         self.current_index = start_frame
 
+        super().__init__(name)
+
     def __next__(self):
         self.current_index += 1
 
@@ -412,7 +429,10 @@ class StandardFormatFrameGenerator(FrameGenerator):
                 return None
 
 class AlignedFrameGenerator(FrameGenerator):
-    def __init__(self,parent,name='Unknown Frame Generator'):
+    # def __init__(self,parent,name='Unknown Frame Generator'):
+    #     super().__init__(name=name)
+
+    def set_parent(self,parent):
         self.parent = parent
 
         if isinstance(self,AlignedStandardFormatFrameGenerator):
@@ -420,7 +440,6 @@ class AlignedFrameGenerator(FrameGenerator):
         else:
             self.get_frame_fn = super().get_frame
 
-        super().__init__(name=name)
 
     def get_frame(self, n_frame, **kwargs):
 
@@ -449,6 +468,9 @@ class AlignedFrameGenerator(FrameGenerator):
             return self.get_frame_fn(i,**kwargs)
         else:
             return None
+
+class AlignedRawFrameGenerator(RawFrameGenerator,AlignedFrameGenerator):
+    pass
 
 class AlignedStandardFormatFrameGenerator(StandardFormatFrameGenerator,AlignedFrameGenerator):
     pass
@@ -484,6 +506,7 @@ class FrameGeneratorCollection:
             key = cv.waitKey(delay)
 
             if key == ord('q'):
+                cv.destroyAllWindows()
                 break
 
     def __iter__(self):
@@ -497,17 +520,19 @@ class FrameGeneratorCollection:
         frame2 = self.aligned_frame_generator.get_frame(idx)
         return (frame1, frame2)
 
-if __name__ == '__main__':
-    fg = FrameGenerator(name='East')
-    fg.raw_frame_generator('/srv/smb/12dec/run1946_schlieren_C001H001S0001/run1946_schlieren_C001H001S0001.mraw',hflip=True)
-    fg.set_output_resolution((1024,1024))
-    fg.set_center_offset((0,0))
+# if __name__ == '__main__':
+    # fg = RawFrameGenerator('/home/gerard/Documents/DecCampaignAnalysis/eod_cal_12dec_post_1950_C001H001S0001/eod_cal_12dec_post_1950_C001H001S0001.mraw',name='East')
+    # # fg.raw_frame_generator('/srv/smb/12dec/run1946_schlieren_C001H001S0001/run1946_schlieren_C001H001S0001.mraw',hflip=True)
+    # fg.set_output_resolution((1024,1024))
+    # fg.set_center_offset((0,0))
+    # # fg.play(fps=10)
 
-    fg2 = AlignedFrameGenerator(fg,name='Top')
-    fg2.raw_frame_generator('/srv/smb/12dec/run1946_top_C002H001S0001/run1946_top_C002H001S0001.mraw',hflip=True,vflip=True)
-    fg2.set_output_resolution((1024,1024))
-    fg2.brighten = True
+    # fg2 = AlignedRawFrameGenerator('/home/gerard/Documents/DecCampaignAnalysis/eod_cal_12dec_post_1950_C002H001S0001/eod_cal_12dec_post_1950_C002H001S0001.mraw',name='Top')
+    # fg2.set_parent(fg)
 
-    fg_collection = FrameGeneratorCollection(fg,fg2)
+    # fg.fps = 1
+    # fg2.fps = 1
 
-    fg_collection.play(0)
+    # fgcoll = FrameGeneratorCollection(fg,fg2)
+
+    # fgcoll.play()
