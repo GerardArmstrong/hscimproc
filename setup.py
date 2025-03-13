@@ -15,7 +15,7 @@ setup(
     optional_requires=['opencv-python'],
     entry_points={
         'console_scripts': [
-            'mraw-extract = mraw_extract:main',
+            'hscimproc-play = hscimproc.funcs:play',
         ],
     },
 author='Gerard Armstrong')
