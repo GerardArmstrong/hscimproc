@@ -7,6 +7,7 @@ from PIL import Image
 from time import sleep
 import hashlib
 import cv2 as cv
+from typing import Union
 
 """
 Author: Gerard Armstrong
@@ -57,13 +58,20 @@ class FrameGenerator:
             # if self.output_resolution is not None:
             #     frame = self.pad_to(frame,self.output_resolution,center_offset=self.center_offset)
 
+            player_name = self.device_name if self.device_name is not None else self.name
             cv.imshow('Player1', frame)
+            cv.displayOverlay(
+                player_name, f'{player_name}: Frame {self.current_index}')
 
             if fps == 0:
-                keypress = cv.waitKey()
+                while True:
+                    keypress = cv.waitKey()
+                    # Don't let meta key increment frames
+                    if not keypress == 235:
+                        break
             else:
                 keypress = cv.waitKey(1000//fps)
-                # Also allow user to press 'q' button or 'esc' button and stop the video
+
             if keypress == ord('q') or keypress == 27:
                 cv.destroyAllWindows()
                 break
@@ -266,7 +274,12 @@ class RawFrameGenerator(FrameGenerator):
         (im_shape,
          total_frames,
          fps,
-         bit_depth, start_offset) = self.get_metadata(mraw)
+         bit_depth,
+         start_offset,
+         sensorXpos,
+         sensorYpos,
+         deviceName
+         ) = self.get_metadata(mraw)
 
         self.mmap = open(mraw, 'rb')
 
@@ -305,10 +318,15 @@ class RawFrameGenerator(FrameGenerator):
         self.mraw = mraw
         self.fps = fps
         self.start_offset = start_offset
+        self.device_name = deviceName
+
+        self.sensorXpos = sensorXpos
+        self.sensorYpos = sensorYpos
+        self.set_center_offset((sensorXpos, sensorYpos))
 
         self.current_index = start_frame
         self.output_resolution = None
-        self.center_offset = (0, 0)
+        # self.center_offset = (0, 0)
 
         super().__init__(name)
 
@@ -343,10 +361,18 @@ class RawFrameGenerator(FrameGenerator):
         fps = int(root.find('recordInfo').find('recordRate').text)
         start_offset = int(root.find('frameInfo').find('startFrame').text)
         bitDepth = int(imageDataInfo.find('effectiveBit').find('depth').text)
+
+        sensorXpos = int(imageDataInfo.find(
+            'segmentPos').find('sensorXpos').text)
+        sensorYpos = int(imageDataInfo.find(
+            'segmentPos').find('sensorYpos').text)
+
+        deviceName = root.find('deviceInfo').find('deviceName').text
+
         f = None
         sleep(0.5)
 
-        return resolution, total_frames, fps, bitDepth, start_offset
+        return resolution, total_frames, fps, bitDepth, start_offset, sensorXpos, sensorYpos, deviceName
 
 
 class StandardFormatFrameGenerator(FrameGenerator):
@@ -492,10 +518,9 @@ class AlignedStandardFormatFrameGenerator(StandardFormatFrameGenerator, AlignedF
 
 class FrameGeneratorCollection:
 
-    def __init__(self, frame_generator: FrameGenerator, aligned_frame_generator: AlignedFrameGenerator):
+    def __init__(self, frame_generators: list[FrameGenerator]):
 
-        self.frame_generator = frame_generator
-        self.aligned_frame_generator = aligned_frame_generator
+        self.frame_generators = frame_generators
 
     def play(self, fps=30):
 
@@ -511,33 +536,42 @@ class FrameGeneratorCollection:
         else:
             delay = 1000 // fps
 
-        for (frame1, frame2) in self:
+        for frames in self:
+            for j, frame in enumerate(frames):
+                if frame is not None:
+                    player = self.frame_generators[j]
+                    player_name = player.device_name if player.device_name is not None else player.name
+                    cv.imshow(player_name, frame)
+                    cv.displayOverlay(
+                        player_name, f'{player_name}: Frame {self.frame_generators[j].current_index}')
 
-            if frame1 is not None:
-                cv.imshow('Player1', frame1)
-            if frame2 is not None:
-                cv.imshow('Player2', frame2)
+            while True:
+                key = cv.waitKey(delay)
 
-            key = cv.waitKey(delay)
+                if key == ord('q'):
+                    cv.destroyAllWindows()
+                    return
 
-            if key == ord('q'):
-                cv.destroyAllWindows()
-                break
+                # Don't let meta key increment frames
+                if not key == 235:
+                    break
 
     def __iter__(self):
         return self
 
     def __next__(self):
-        idx = self.frame_generator.current_index + 1
-        self.frame_generator.current_index = idx
 
-        frame1 = self.frame_generator.get_frame(idx)
-        frame2 = self.aligned_frame_generator.get_frame(idx)
+        frames = []
 
-        self.t = self.frame_generator.t
-        self.dt = self.frame_generator.dt
+        for frame_gen in self.frame_generators:
+            idx = frame_gen.current_index + 1
+            frame_gen.current_index = idx
+            frames.append(frame_gen.get_frame(idx))
 
-        return (frame1, frame2)
+        self.t = self.frame_generators[0].t
+        self.dt = self.frame_generators[0].dt
+
+        return frames
 
 # if __name__ == '__main__':
     # fg = RawFrameGenerator('/home/gerard/Documents/DecCampaignAnalysis/eod_cal_12dec_post_1950_C001H001S0001/eod_cal_12dec_post_1950_C001H001S0001.mraw',name='East')
