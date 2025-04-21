@@ -30,10 +30,11 @@ if not os.path.exists('/tmp/hscimproc_data'):
 
 class FrameGenerator:
 
-    def __init__(self, name='Unknown Frame Generator'):
+    def __init__(self, name='Unknown Frame Generator', overlay_frame_index=True):
         self.aligned_frame_generator = None
         self.brighten = False
         self.name = name
+        self.overlay_frame_index = overlay_frame_index
 
     def hflip(self, im):
         return np.flip(im, 1)
@@ -59,7 +60,11 @@ class FrameGenerator:
             #     frame = self.pad_to(frame,self.output_resolution,center_offset=self.center_offset)
 
             player_name = self.device_name if self.device_name is not None else self.name
-            cv.imshow('Player1', frame)
+
+            if self.overlay_frame_index:
+                cv.putText(frame, str(self.current_index), (10, 30),
+                           cv.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2, cv.LINE_AA)
+            cv.imshow(player_name, frame)
             cv.displayOverlay(
                 player_name, f'{player_name}: Frame {self.current_index}')
 
@@ -118,7 +123,7 @@ class FrameGenerator:
         out.release()
 
     def __iter__(self):
-        self.current_index = 0
+        self.current_index = self.start_frame - 1
         return self
 
     def get_previous(self):
@@ -128,8 +133,11 @@ class FrameGenerator:
 
     def get_frame(self, n_frame):
 
-        self.t = 1/self.fps * n_frame
-        self.dt = 1/self.fps*(n_frame-self.current_index)
+        n_frame = int(n_frame)
+
+        d_frame = n_frame - self.current_index
+        self.dt = 1./self.fps * d_frame
+        self.t = 1./self.fps * n_frame
 
         frame_size_bytes = self.frame_size_bytes
         bit_depth = self.bit_depth
@@ -182,52 +190,73 @@ class FrameGenerator:
 
         self.im_shape = mat.shape
 
-        if self.output_resolution is not None:
-            mat = self.pad_to(mat, resolution=self.output_resolution,
-                              center_offset=self.center_offset)
-
         if self.brighten:
-            _max = mat.max()
-            mat = mat * (2**(output_dtype_itemsize*8) / _max)
-            mat = mat.astype(output_dtype)
+            # if not hasattr(self, 'brighten_mean'):
+            brighten_mean = mat.mean()
+            brighten_std = mat.std()
+
+            # Rescale image from -4 to 4 sigma
+            mat = (mat - brighten_mean)/brighten_std
+            half_width = 2**mat.itemsize/2-1
+            mat = half_width * (1 + mat/4)
+
+            mat = np.clip(mat, min=0,
+                          max=2**bit_depth-1).astype(self.output_dtype)
+
+        if hasattr(self, 'image_processing_fn'):
+            mat = self.image_processing_fn(mat)
+
+        if self.output_resolution is not None:
+            # mat = self.pad_to(mat, resolution=self.output_resolution,
+            #                   center_offset=self.center_offset)
+            mat = self.shift(mat)
 
         return mat
+
+    def shift(self, frame):
+        sensorXpos = self.sensorXpos
+        sensorYpos = self.sensorYpos
+
+        blank = np.zeros(self.output_resolution, dtype=self.output_dtype)
+
+        blank[sensorYpos:sensorYpos+frame.shape[0],
+              sensorXpos:sensorXpos+frame.shape[1]] = frame
+        return blank
 
     def get_current_frame(self):
         return self.get_frame(self.current_index)
 
     def __next__(self):
-        frame = self.get_frame(self.current_index)
+        frame = self.get_frame(self.current_index+1)
         self.current_index += 1
-
         return frame
 
-    def pad(self, frame, pad):
-        # follows (before, after) format. For both axes, use ( (before_x,after_x),(before_y,after_y) )
-        return np.pad(frame, pad)
+    # def pad(self, frame, pad):
+    #     # follows (before, after) format. For both axes, use ( (before_x,after_x),(before_y,after_y) )
+    #     return np.pad(frame, pad)
 
-    def pad_to(self, frame, resolution, center_offset=(0, 0)):
+    # def pad_to(self, frame, resolution, center_offset=(0, 0)):
 
-        # uses numpy coordinates so it goes (top,bottom), (left,right)
-        # center_offset uses normal xy coordinates (since that is what camera reports)
+    #     # uses numpy coordinates so it goes (top,bottom), (left,right)
+    #     # center_offset uses normal xy coordinates (since that is what camera reports)
 
-        assert len(resolution) == 2
+    #     assert len(resolution) == 2
 
-        hor_res, vert_res = resolution
-        vert_len, hor_len = frame.shape[:2]
+    #     hor_res, vert_res = resolution
+    #     vert_len, hor_len = frame.shape[:2]
 
-        hor_center = hor_res // 2 + center_offset[0]
-        vert_center = vert_res // 2 + center_offset[1]
+    #     hor_center = hor_res // 2 + center_offset[0]
+    #     vert_center = vert_res // 2 + center_offset[1]
 
-        assert vert_res >= vert_len
-        assert hor_res >= hor_len
+    #     assert vert_res >= vert_len
+    #     assert hor_res >= hor_len
 
-        left_pad = hor_center - hor_len // 2
-        right_pad = hor_res - hor_center - hor_len // 2
-        bottom_pad = vert_center - vert_len // 2
-        top_pad = vert_res - vert_center - vert_len // 2
+    #     left_pad = hor_center - hor_len // 2
+    #     right_pad = hor_res - hor_center - hor_len // 2
+    #     bottom_pad = vert_center - vert_len // 2
+    #     top_pad = vert_res - vert_center - vert_len // 2
 
-        return np.pad(frame, ((top_pad, bottom_pad), (left_pad, right_pad)))
+    #     return np.pad(frame, ((top_pad, bottom_pad), (left_pad, right_pad)))
 
     def save_tiff(self, frame):
         import cv2 as cv
@@ -316,7 +345,7 @@ class RawFrameGenerator(FrameGenerator):
         self.apply_vflip = vflip
         self.scale = scale
         self.mraw = mraw
-        self.fps = fps
+        self.fps = float(fps)
         self.start_offset = start_offset
         self.device_name = deviceName
 
@@ -363,9 +392,9 @@ class RawFrameGenerator(FrameGenerator):
         bitDepth = int(imageDataInfo.find('effectiveBit').find('depth').text)
 
         sensorXpos = int(imageDataInfo.find(
-            'segmentPos').find('sensorXpos').text)
+            'segmentPos').find('sensorXpos').text)//2
         sensorYpos = int(imageDataInfo.find(
-            'segmentPos').find('sensorYpos').text)
+            'segmentPos').find('sensorYpos').text)//2
 
         deviceName = root.find('deviceInfo').find('deviceName').text
 
@@ -502,17 +531,18 @@ class AlignedFrameGenerator(FrameGenerator):
         i = (sf1 + n_frame)*fps1/fps2 - sf2
 
         if i >= 0 and i <= self.total_frames and i % 1 == 0:
-            # return super().get_frame(i,**kwargs)
             return self.get_frame_fn(i, **kwargs)
         else:
             return None
 
 
 class AlignedRawFrameGenerator(RawFrameGenerator, AlignedFrameGenerator):
+    # AlignedFrameGenerator sets the RawFrameGenerator get_frame function for this class
     pass
 
 
 class AlignedStandardFormatFrameGenerator(StandardFormatFrameGenerator, AlignedFrameGenerator):
+    # AlignedFrameGenerator sets the StandardFormatFrameGenerator get_frame function for this class
     pass
 
 
@@ -521,6 +551,9 @@ class FrameGeneratorCollection:
     def __init__(self, frame_generators: list[FrameGenerator]):
 
         self.frame_generators = frame_generators
+        self.current_index = frame_generators[0].current_index
+        self.t = 0.
+        # self.dt = frame_generators[0].dt
 
     def play(self, fps=30):
 
@@ -541,6 +574,10 @@ class FrameGeneratorCollection:
                 if frame is not None:
                     player = self.frame_generators[j]
                     player_name = player.device_name if player.device_name is not None else player.name
+
+                    if player.overlay_frame_index:
+                        cv.putText(frame, str(player.current_index), (10, 30),
+                                   cv.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2, cv.LINE_AA)
                     cv.imshow(player_name, frame)
                     cv.displayOverlay(
                         player_name, f'{player_name}: Frame {self.frame_generators[j].current_index}')
@@ -564,28 +601,15 @@ class FrameGeneratorCollection:
         frames = []
 
         for frame_gen in self.frame_generators:
-            idx = frame_gen.current_index + 1
-            frame_gen.current_index = idx
-            frames.append(frame_gen.get_frame(idx))
+            # idx = frame_gen.current_index
+            frames.append(next(frame_gen))
+            # frame_gen.current_index += 1
 
         self.t = self.frame_generators[0].t
         self.dt = self.frame_generators[0].dt
+        self.current_index = self.frame_generators[0].current_index
+
+        self.is_multiview = True if sum(
+            [im is not None for im in frames]) > 1 else False
 
         return frames
-
-# if __name__ == '__main__':
-    # fg = RawFrameGenerator('/home/gerard/Documents/DecCampaignAnalysis/eod_cal_12dec_post_1950_C001H001S0001/eod_cal_12dec_post_1950_C001H001S0001.mraw',name='East')
-    # # fg.raw_frame_generator('/srv/smb/12dec/run1946_schlieren_C001H001S0001/run1946_schlieren_C001H001S0001.mraw',hflip=True)
-    # fg.set_output_resolution((1024,1024))
-    # fg.set_center_offset((0,0))
-    # # fg.play(fps=10)
-
-    # fg2 = AlignedRawFrameGenerator('/home/gerard/Documents/DecCampaignAnalysis/eod_cal_12dec_post_1950_C002H001S0001/eod_cal_12dec_post_1950_C002H001S0001.mraw',name='Top')
-    # fg2.set_parent(fg)
-
-    # fg.fps = 1
-    # fg2.fps = 1
-
-    # fgcoll = FrameGeneratorCollection(fg,fg2)
-
-    # fgcoll.play()
