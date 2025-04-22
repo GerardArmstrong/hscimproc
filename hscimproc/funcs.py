@@ -218,6 +218,7 @@ class FrameGenerator:
 
         overlays = [
             f'Device: {self.device_name}',
+            f'Frames since trigger: {self.start_offset+n_frame}',
             f'fps: {int(self.fps)}',
             f'Frame: {n_frame}',
             f't: {self.t:.4f}s',
