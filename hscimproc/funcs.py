@@ -1,3 +1,4 @@
+from tkinter import font
 import numpy as np
 import lxml.etree
 import os
@@ -61,9 +62,6 @@ class FrameGenerator:
 
             player_name = self.device_name if self.device_name is not None else self.name
 
-            if self.overlay_frame_index:
-                cv.putText(frame, str(self.current_index), (10, 30),
-                           cv.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2, cv.LINE_AA)
             cv.imshow(player_name, frame)
             cv.displayOverlay(
                 player_name, f'{player_name}: Frame {self.current_index}')
@@ -211,7 +209,40 @@ class FrameGenerator:
             #                   center_offset=self.center_offset)
             mat = self.shift(mat)
 
+        if self.overlay_frame_index:
+            self.info_overlay(mat, n_frame)
+
         return mat
+
+    def info_overlay(self, frame, n_frame):
+
+        overlays = [
+            f'Device: {self.device_name}',
+            f'fps: {int(self.fps)}',
+            f'Frame: {n_frame}',
+            f't: {self.t:.4f}s',
+        ]
+
+        font_face = cv.FONT_HERSHEY_PLAIN
+        font_scale = 1
+        font_thickness = 1
+        spacing = 2
+        padding = 10
+        line_height = cv.getTextSize(
+            ' ', font_face, font_scale, font_thickness)[0][1]
+        y_max = frame.shape[0] - int(len(overlays)
+                                     * line_height * spacing + padding * 2)
+        x_max = int(max([cv.getTextSize(
+            overlay, font_face, font_scale, font_thickness)[0][0] for overlay in overlays]) + padding * 2
+        )
+
+        cv.rectangle(frame, (0, y_max), (x_max, frame.shape[0]), color=[
+            30, 50, 30], thickness=-1)
+
+        for i, overlay in enumerate(overlays):
+            y = int(frame.shape[0]-i*line_height*spacing-padding)
+            frame[:] = cv.putText(frame, overlay, (padding, y),
+                                  cv.FONT_HERSHEY_PLAIN, font_scale, (255, 255, 255), font_thickness, cv.LINE_AA)
 
     def shift(self, frame):
         sensorXpos = self.sensorXpos
