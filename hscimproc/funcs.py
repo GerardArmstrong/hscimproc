@@ -31,11 +31,11 @@ if not os.path.exists('/tmp/hscimproc_data'):
 
 class FrameGenerator:
 
-    def __init__(self, name='Unknown Frame Generator', overlay_frame_index=True):
+    def __init__(self, name='Unknown Frame Generator', display_info=True):
         self.aligned_frame_generator = None
         self.brighten = False
         self.name = name
-        self.overlay_frame_index = overlay_frame_index
+        self.display_info = display_info
 
     def hflip(self, im):
         return np.flip(im, 1)
@@ -209,7 +209,7 @@ class FrameGenerator:
             #                   center_offset=self.center_offset)
             mat = self.shift(mat)
 
-        if self.overlay_frame_index:
+        if self.display_info:
             self.info_overlay(mat, n_frame)
 
         return mat
@@ -607,7 +607,7 @@ class FrameGeneratorCollection:
                     player = self.frame_generators[j]
                     player_name = player.device_name if player.device_name is not None else player.name
 
-                    if player.overlay_frame_index:
+                    if player.display_info:
                         cv.putText(frame, str(player.current_index), (10, 30),
                                    cv.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2, cv.LINE_AA)
                     cv.imshow(player_name, frame)
