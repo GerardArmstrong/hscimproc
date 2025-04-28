@@ -328,7 +328,8 @@ class RawFrameGenerator(FrameGenerator):
                  hflip=False,
                  vflip=False,
                  brighten=False,
-                 name='Unknown Frame Generator'
+                 name='Unknown Frame Generator',
+                 display_info=True
                  ):
 
         # determine the image shape so it doesn't need to be passed
@@ -389,7 +390,7 @@ class RawFrameGenerator(FrameGenerator):
         self.output_resolution = None
         # self.center_offset = (0, 0)
 
-        super().__init__(name)
+        super().__init__(name, display_info=display_info)
 
     def get_metadata(self, filename):
 
@@ -448,6 +449,7 @@ class StandardFormatFrameGenerator(FrameGenerator):
                  hflip=False,
                  vflip=False,
                  brighten=False,
+                 display_info=True,
                  name='Unknown Frame Generator'
                  ):
         """
@@ -490,7 +492,7 @@ class StandardFormatFrameGenerator(FrameGenerator):
         self.fps = fps
         self.current_index = start_frame
 
-        super().__init__(name)
+        super().__init__(name, display_info=display_info)
 
     def __next__(self):
         self.current_index += 1
@@ -585,7 +587,6 @@ class FrameGeneratorCollection:
         self.frame_generators = frame_generators
         self.current_index = frame_generators[0].current_index
         self.t = 0.
-        # self.dt = frame_generators[0].dt
 
     def play(self, fps=30):
 
