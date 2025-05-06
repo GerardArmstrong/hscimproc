@@ -406,9 +406,10 @@ class RawFrameGenerator(FrameGenerator):
         with open(xml_file, 'rb') as f:
             xml_data = f.read()
             # Find the start of the XML content and decode it
-            start = xml_data.find(b'<')
+            start = xml_data.find('<cih'.encode())
+            end = xml_data.find('/cih>'.encode())
             # xml_data = xml_data[start:].decode('utf-8')
-            xml_data = xml_data[start:]
+            xml_data = xml_data[start:end+5]
 
         # root = xml.etree.ElementTree.fromstring(xml_data)
 
