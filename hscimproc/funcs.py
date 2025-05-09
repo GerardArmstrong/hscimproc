@@ -263,6 +263,19 @@ class FrameGenerator:
         self.current_index += 1
         return frame
 
+    def get_frame_by_time(self, t):
+
+        # t = (start_frame + i_1)*fps1
+        if AlignedFrameGenerator in self.__class__.__bases__:
+            fps = self.parent.fps
+            start_offset = self.parent.start_offset
+        else:
+            fps = self.fps
+            start_offset = self.start_offset
+
+        n_frame = int(t*fps - start_offset)
+        return self.get_frame(n_frame)
+
     # def pad(self, frame, pad):
     #     # follows (before, after) format. For both axes, use ( (before_x,after_x),(before_y,after_y) )
     #     return np.pad(frame, pad)
@@ -629,6 +642,12 @@ class FrameGeneratorCollection:
 
     def __iter__(self):
         return self
+
+    def get_frames_by_time(self, t):
+        frames = []
+        for fg in self.frame_generators:
+            frames.append(fg.get_frame_by_time(t))
+        return frames
 
     def __next__(self):
 
