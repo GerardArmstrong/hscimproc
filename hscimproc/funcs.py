@@ -31,11 +31,13 @@ if not os.path.exists('/tmp/hscimproc_data'):
 
 class FrameGenerator:
 
-    def __init__(self, name='Unknown Frame Generator', display_info=True):
-        self.aligned_frame_generator = None
-        self.brighten = False
-        self.name = name
-        self.display_info = display_info
+    def __init__(self, **kwargs):
+        self.aligned_frame_generator = kwargs.get(
+            'aligned_frame_generator', None)
+        self.brighten = kwargs.get('brighten', False)
+        self.name = kwargs.get('name', 'Unknown Frame Generator')
+        self.display_info = kwargs.get('display_info', True)
+        self.manual_offset = kwargs.get('manual_offset', 0)
 
     def hflip(self, im):
         return np.flip(im, 1)
@@ -133,6 +135,8 @@ class FrameGenerator:
 
         n_frame = int(n_frame)
 
+        self.last_retrieved_frame = n_frame
+
         d_frame = n_frame - self.current_index
         self.dt = 1./self.fps * d_frame
         self.t = 1./self.fps * n_frame
@@ -205,8 +209,6 @@ class FrameGenerator:
             mat = self.image_processing_fn(mat)
 
         if self.output_resolution is not None:
-            # mat = self.pad_to(mat, resolution=self.output_resolution,
-            #                   center_offset=self.center_offset)
             mat = self.shift(mat)
 
         if self.display_info:
@@ -342,7 +344,8 @@ class RawFrameGenerator(FrameGenerator):
                  vflip=False,
                  brighten=False,
                  name='Unknown Frame Generator',
-                 display_info=True
+                 display_info=True,
+                 manual_offset=0
                  ):
 
         # determine the image shape so it doesn't need to be passed
@@ -403,7 +406,9 @@ class RawFrameGenerator(FrameGenerator):
         self.output_resolution = None
         # self.center_offset = (0, 0)
 
-        super().__init__(name, display_info=display_info)
+        super().__init__(name=name, display_info=display_info,
+                         manual_offset=manual_offset,
+                         brighten=brighten)
 
     def get_metadata(self, filename):
 
@@ -521,6 +526,8 @@ class StandardFormatFrameGenerator(FrameGenerator):
         if idx >= len(self.files):
             raise StopIteration
 
+        idx += self.manual_offset
+
         f = self.files[idx]
 
         try:
@@ -545,8 +552,6 @@ class StandardFormatFrameGenerator(FrameGenerator):
 
 
 class AlignedFrameGenerator(FrameGenerator):
-    # def __init__(self,parent,name='Unknown Frame Generator'):
-    #     super().__init__(name=name)
 
     def set_parent(self, parent):
         self.parent = parent
@@ -578,14 +583,21 @@ class AlignedFrameGenerator(FrameGenerator):
 
         i = (sf1 + n_frame)*fps1/fps2 - sf2
 
+        i += self.manual_offset
+
         if i >= 0 and i <= self.total_frames and i % 1 == 0:
-            return self.get_frame_fn(i, **kwargs)
+            ret_im = self.get_frame_fn(i, **kwargs)
         else:
-            return None
+            ret_im = None
+
+        # self.current_index = i
+        return ret_im
 
 
 class AlignedRawFrameGenerator(RawFrameGenerator, AlignedFrameGenerator):
     # AlignedFrameGenerator sets the RawFrameGenerator get_frame function for this class
+    # def __init__(self, **kwargs):
+    #     super().__init__(kwargs)
     pass
 
 
